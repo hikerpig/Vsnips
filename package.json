@@ -149,6 +149,7 @@
 		"vscode": "^1.1.28"
 	},
 	"dependencies": {
+		"@unisnips/ultisnips": "^0.8.0",
 		"js-logger": "^1.6.0",
 		"walk": "^2.3.14"
 	},

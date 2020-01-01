@@ -1,10 +1,10 @@
+import * as vscode from 'vscode'
 import { Logger } from "./logger";
 import { VSnipContext } from "./vsnip_context";
 import * as ScriptFunc from "./script_tpl";
-import { trim, replaceAll } from "./util";
-import * as vscode from "vscode";
-
-const VIM_SNIPPET = /^snippet ([^\s]*)\s*(?:"(.*?)"(.*))?\n((?:.|\n)*?)\nendsnippet$/gm;
+import { trim } from './util'
+import UNSNIPS_ULTISNIPS from "@unisnips/ultisnips";
+import { SnippetDefinition, applyReplacements, PlaceholderReplacement, ParseOptions } from "@unisnips/core";
 
 class Snippet {
   // Please refer to: https://github.com/SirVer/ultisnips/blob/master/doc/UltiSnips.txt
@@ -12,6 +12,8 @@ class Snippet {
   public body: string;
   public descriptsion: string;
   public vimOptions: string;
+
+  definition!: SnippetDefinition;
 
   // 标记snip中是否有js函数, 如果有js占位函数的, 需要在补全时再进行一次求值操作
   // 将body体中的js函数进行求值处理.
@@ -113,103 +115,67 @@ class Snippet {
   }
 }
 
-function parse(rawSnippets: string): Snippet[] {
-  let res = null;
-  const snips: Snippet[] = [];
-  Logger.debug("start parse", rawSnippets);
-  while ((res = VIM_SNIPPET.exec(rawSnippets)) !== null) {
-    const [, prefix, description, options, body] = res;
-
-    const _prefix = prefix;
-    const _b = normalizePlaceholders(body);
-    const _options = trim(options, [" "]);
-    const [_body, _hasJSScript] = lexParser(_b);
-    const _descriptsion  = description;
-
-    const snip = new Snippet(
-      _prefix,
-      _descriptsion,
-      _options,
-      _body,
-      _hasJSScript,
-    );
-
+function parse(rawSnippets: string, opts: ParseOptions = {}): Array<Snippet> {
+  let snips: Array<Snippet> = [];
+  const { definitions } = UNSNIPS_ULTISNIPS.parse(rawSnippets, opts);
+  definitions.forEach(def => {
+    const snip = new Snippet(def.trigger, def.description, def.flags, def.body);
     snips.push(snip);
-  }
+    snip.definition = def;
+    replacePlaceholderScript(snip);
+
+    Logger.debug("prefix: ", snip.prefix);
+    Logger.debug("description: ", snip.descriptsion);
+    Logger.debug("body: ", snip.body);
+  });
   return snips;
 }
 
 // 这部分代码用于实现从vim 或是 python函数 => js函数的转换
 // 主要应用了正则替换.
-function lexParser(str: string): [string, boolean] {
-  // 检查所有(``)包裹的部分, 并确保里面没有嵌套(`)
-  // 不允许多行包含多行
-  // eslint-disable-next-line
-  const SNIP_FUNC_PATTERN = /`([^\`]+)\`/g;
-
-  const FT_UNKNOW = 0x0;
-  const FT_VIM = 0x1;
-  const FT_PYTHON = 0x2;
-  const FT_JAVASCRIPT = 0x3;
-
-  Logger.debug("Before parse", str);
-  let rlt = "";
-  let hasJSScript = false;
-
+function replacePlaceholderScript(snip: Snippet) {
   // 记录需要替换的值, 最后统一替换, 这里一定要注意, 不要exec之后马上替换,
   // js的实现有问题, 直接替换会导致之后的匹配出现问题, 需要等到所有待替换的值
   // 全部找出后再一起替换.
-  let res = null;
-  const replaceMap = new Map();
+  const replacements: PlaceholderReplacement[] = [];
 
-  while ((res = SNIP_FUNC_PATTERN.exec(str)) !== null) {
-    const [stmt, func] = res as RegExpExecArray;
-    Logger.debug("Get parser", stmt);
-    if (replaceMap.get(stmt)) {
-      Logger.debug(`Already get ${stmt}.`);
-      continue;
+  let hasJSScript = false;
+
+  const funcReplaceMap = new Map;
+
+  snip.definition.placeholders.forEach(placeholder => {
+    if (placeholder.valueType === "script") {
+      let replacement: PlaceholderReplacement | null = null;
+      const { scriptInfo } = placeholder;
+      if (scriptInfo) {
+        if (scriptInfo.scriptType === "python") {
+          replacement = {
+            placeholder,
+            type: "string",
+            replaceContent: pythonRewrite(scriptInfo.code)
+          };
+        } else if (scriptInfo.scriptType === "vim") {
+          replacement = {
+            placeholder,
+            type: "string",
+            replaceContent: vimRewrite(scriptInfo.code)
+          };
+        } else if (scriptInfo.scriptType === "js") {
+          hasJSScript = true;
+        }
+      }
+      if (replacement) {
+        const rlt = replacement.replaceContent
+        if (rlt && rlt.startsWith(`\`!js`)) {
+          hasJSScript = true;
+        }
+        replacements.push(replacement);
+      }
     }
-
-    let funcType = FT_PYTHON;
-    if (func.startsWith("!p")) {
-      funcType = FT_PYTHON;
-    } else if (func.startsWith("!v")) {
-      funcType = FT_VIM;
-    } else if (func.startsWith("!js")) {
-      // TODO: make my own func
-      funcType = FT_JAVASCRIPT;
-      hasJSScript = true;
-    } else {
-      funcType = FT_UNKNOW;
-    }
-
-    switch (funcType) {
-      case FT_PYTHON:
-        rlt = pythonRewrite(func);
-        replaceMap.set(stmt, rlt);
-        break;
-      case FT_VIM:
-        rlt = vimRewrite(func);
-        replaceMap.set(stmt, rlt);
-        break;
-      case FT_JAVASCRIPT:
-        break;
-
-      default:
-        break;
-    }
-
-    Logger.debug("After replace stmt", stmt, "we got: ", str);
-  }
-
-  replaceMap.forEach((rlt, stmt) => {
-    if (rlt.startsWith(`\`!js`)) {
-      hasJSScript = true;
-    }
-    str = replaceAll(str, stmt, rlt);
   });
 
-  return [str, hasJSScript];
+  snip.body = applyReplacements(snip.definition, replacements);
+  snip.hasJSScript = hasJSScript;
 }
 
 function pythonRewrite(stmt: string) {
@@ -286,18 +252,6 @@ function vimRewrite(stmt: string) {
   }
 
   return stmt;
-}
-
-function normalizePlaceholders(str: string) {
-  const visualPlaceholder = /\${(\d):\${VISUAL}}/;
-  if (visualPlaceholder.test(str)) {
-    const data = visualPlaceholder.exec(str) as RegExpExecArray;
-    const n = data[1];
-    Logger.debug("Get visual data", data, n);
-    return str.replace(visualPlaceholder, `$${n}`);
-  } else {
-    return str;
-  }
 }
 
 // 获得snip中的js函数, 并调用该函数名对应的函数指针.

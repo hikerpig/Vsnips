@@ -49,7 +49,7 @@ endsnippet`,
           "b",
           `if __name__ == "__main__":
     \${1:\${VISUAL:main()}}
-    $2`
+    \${2:\${VISUAL}}`
         )
       ],
 
@@ -80,7 +80,7 @@ endsnippet`,
 @Author : corvo
 
 """
-`
+`,
         )
       ],
 
@@ -198,9 +198,13 @@ endsnippet`,
         const snip = _s as Snippet;
         const snippet = parse(txt)[0];
 
-        expect(snippet).deep.eq(snip);
+        // console.log('testing: ', txt);
+
+        // snippet.definition 不需要比较，所以使用 include
+        expect(snippet).deep.include(snip);
       });
   });
+
   it("Test js func eval", () => {
     // 测试带有参数的js函数
     const ExampleVSCntext = new VSnipContext(
