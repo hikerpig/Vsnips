@@ -4,7 +4,7 @@ import * as ScriptFunc from "./script_tpl";
 import UNSNIPS_ULTISNIPS from "@unisnips/ultisnips";
 import { SnippetDefinition, applyReplacements, PlaceholderReplacement, ParseOptions } from "@unisnips/core";
 
-class Snippet {
+export class Snippet {
   prefix: string;
   body: string;
   descriptsion: string;
