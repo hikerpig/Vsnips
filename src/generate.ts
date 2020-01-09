@@ -76,6 +76,21 @@ export async function generate(context: vscode.ExtensionContext) {
     }
   }
 
+  function longestMatchChars(base: string, candidate: string) {
+    const minLen = Math.min(base.length, candidate.length);
+    const matchedChars = [];
+    for (let i = 0; i < minLen; i++) {
+      const c1 = base[i];
+      const c2 = candidate[i];
+      if (c1 === c2) {
+        matchedChars.push(c1);
+      } else {
+        break;
+      }
+    }
+    return matchedChars;
+  }
+
   // 主生成函数
   async function innerGenerate(data: string, needFileType: string, snipFile?: string) {
     const sel: vscode.DocumentFilter = {
@@ -102,12 +117,15 @@ export async function generate(context: vscode.ExtensionContext) {
             range = new vscode.Range(position.line, charPos, position.line, position.character);
           }
           const contextWord = document.getText(range);
-          const shouldAddAll = 'vsnips'.startsWith(contextWord.toLowerCase());
+
+          // 前两个字符是 vs 的话就列出所有 snippets
+          const shouldAddAll = longestMatchChars('vsnips', contextWord.toLowerCase()).length >=2;
 
           let compleItems: Array<vscode.CompletionItem> = [];
           snippets.forEach(snip => {
             let shouldAdd = shouldAddAll;
             if (!shouldAdd) {
+              // MAYBE: 如果有 fuzzy search 会更好
               if (snip.prefix.startsWith(contextWord)) {
                 shouldAdd = true;
               }
