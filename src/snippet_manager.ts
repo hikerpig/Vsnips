@@ -18,11 +18,17 @@ type SnipFileEntry = {
   shortPath: string
 };
 
+type LanguageSnippetRecord = {
+  language: string
+  extendedLanguages: Set<string>
+  snippets: Snippet[]
+};
+
 export class SnippetManager {
   /**
    * 记录某语言已经解析过的 Snippet
    */
-  protected snippetsByLanguage = new Map<string, Snippet[]>();
+  protected languageSnippetRecords = new Map<string, LanguageSnippetRecord>();
   /**
    * All `.snippet` in snips dirs
    */
@@ -31,7 +37,7 @@ export class SnippetManager {
   private snippetsIsAdded = new Map<string, Promise<boolean>>();
 
   public addLanguage(language: string) {
-    if (!this.snippetsByLanguage.get(language)) {
+    if (!this.languageSnippetRecords.get(language)) {
       Logger.info("Start repush the", language, "from local dir");
 
       this.snippetsIsAdded.set(language, new Promise<boolean>((resolve) => {
@@ -59,19 +65,42 @@ export class SnippetManager {
    * 根据语言查询可用 snippets,
    * `all.snippets` 可以被所有语言使用
    */
-  public async getSnippets(language: string) {
-    return new Promise<Snippet[]>((resolve, reject)=> {
+
+  public async getSnippets(language: string, opts: { skipDefault?: boolean, extendPath?: string[] } = {}): Promise<Snippet[]> {
+    const isAddedPromise = new Promise((resolve, reject) => {
       const isAdded = this.snippetsIsAdded.get(language);
       if(isAdded === undefined) {
         reject("The " + language + " does't add yet");
         return;
       }
-      // 只有在当前语言全部添加完成后, 才返回
-      isAdded.then(() => {
-        const snippetsOfLanguage = this.snippetsByLanguage.get(language) || [];
-        const snippetsOfAll = this.snippetsByLanguage.get("all") || [];
-        resolve(snippetsOfAll.concat(snippetsOfLanguage));
-      });
+      resolve();
+    });
+    return isAddedPromise.then(async () => {
+      const record = this.languageSnippetRecords.get(language);
+      const extendPath = opts.extendPath || [];
+      let snippetsOfLanguage: Snippet[] = [];
+      const extraSnippets: Snippet[] = [];
+      if (record) {
+        snippetsOfLanguage = record.snippets;
+        for (const extendedLanguage of record.extendedLanguages) {
+          if (extendPath.includes(extendedLanguage)) {
+            continue;
+          }
+          const extendedLangSnippets = await this.getSnippets(extendedLanguage, {
+            skipDefault: true,
+            extendPath: [...extendPath, extendedLanguage],
+          });
+          extraSnippets.push(...extendedLangSnippets);
+        }
+      }
+      if (!(opts.skipDefault || language === 'all')) {
+        const snippetsOfAll = await this.getSnippets('all', {
+          skipDefault: true,
+          extendPath: [...extendPath, language],
+        }) || [];
+        extraSnippets.push(...snippetsOfAll);
+      }
+      return extraSnippets.concat(snippetsOfLanguage);
     });
   }
 
@@ -113,6 +142,11 @@ export class SnippetManager {
    */
   protected doAddLanguageType(fileType: string) {
     const snippets: Snippet[] = [];
+    const record: LanguageSnippetRecord = {
+      language: fileType,
+      snippets,
+      extendedLanguages: new Set(),
+    };
 
     const snippetFilePaths = this.snipFileEntries.reduce((out: string[], entry) => {
       let shouldAdd = false;
@@ -133,9 +167,20 @@ export class SnippetManager {
     snippetFilePaths.forEach((snipFile) => {
       const fileContent = fs.readFileSync(snipFile, "utf8");
 
-      // 如果 snippet中有extends语句, 根据 snippetsFilePath 查找同目录的 parent .snippets 文件
+      // 如果 snippet中有extends语句, 会先添加被继承的语言的 snippet
       try {
-        const fileSnippets = parse(fileContent);
+        const fileSnippets = parse(fileContent, {
+          onExtends: ({ extendedTypes }) => {
+            extendedTypes.forEach((typeName) => {
+              if (fileType === typeName || record.extendedLanguages.has(typeName)) {
+                return;
+              }
+              record.extendedLanguages.add(typeName);
+              this.addLanguage(typeName);
+            });
+            return [];
+          }
+        });
         snippets.push(...fileSnippets);
       } catch (error) {
         Logger.error(`Parse ${snipFile} with error: ${error}`);
@@ -155,7 +200,7 @@ export class SnippetManager {
     const vboxSnippet = parse(vboxSnipContent)[0];
     snippets.push(vboxSnippet);
 
-    this.snippetsByLanguage.set(fileType, snippets);
+    this.languageSnippetRecords.set(fileType, record);
   }
 }
 
