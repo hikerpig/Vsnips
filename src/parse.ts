@@ -1,8 +1,8 @@
-import * as vscode from 'vscode'
+import * as vscode from 'vscode';
 import { Logger } from "./logger";
 import { VSnipContext } from "./vsnip_context";
 import * as ScriptFunc from "./script_tpl";
-import { trim } from './util'
+import { trim } from './util';
 import UNSNIPS_ULTISNIPS from "@unisnips/ultisnips";
 import { SnippetDefinition, applyReplacements, PlaceholderReplacement, ParseOptions } from "@unisnips/core";
 
@@ -141,8 +141,6 @@ function replacePlaceholderScript(snip: Snippet) {
 
   let hasJSScript = false;
 
-  const funcReplaceMap = new Map;
-
   snip.definition.placeholders.forEach(placeholder => {
     if (placeholder.valueType === "script") {
       let replacement: PlaceholderReplacement | null = null;
@@ -165,7 +163,7 @@ function replacePlaceholderScript(snip: Snippet) {
         }
       }
       if (replacement) {
-        const rlt = replacement.replaceContent
+        const rlt = replacement.replaceContent;
         if (rlt && rlt.startsWith(`\`!js`)) {
           hasJSScript = true;
         }
