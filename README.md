@@ -4,7 +4,9 @@
 
 ![](./images/icon.png)
 
-[中文文档](./README-zh_CN.md)
+Please: refer to the docs: [https://vsnips.corvo.fun/](https://vsnips.corvo.fun/zh/intro/)
+
+[中文文档](https://vsnips.corvo.fun/zh/intro/)
 
 Allow user use Ultisnips in vscode.
 
@@ -103,7 +105,7 @@ endsnippet
 ## Have done
 
 - [x] Auto download the Ultisnips
-- [x] Multi languate completions support
+- [x] Multi language completions support
 - [x] Allow user add their own Ultisnips.
     - [x] From Ultisnips to VScode snippets.
     - [x] Support strftime
